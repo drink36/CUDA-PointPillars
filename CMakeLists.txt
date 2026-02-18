@@ -1,74 +1,76 @@
-# SPDX-FileCopyrightText: Copyright (c) 2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+cmake_minimum_required(VERSION 3.18)
+project(pointpillar LANGUAGES CXX CUDA)
 
-cmake_minimum_required(VERSION 2.8.7)
-project(pointpillar)
-set(CMAKE_BUILD_PYTHON $ENV{USE_Python})
-set(CMAKE_BUILD_TYPE "Release")
-# set(CMAKE_BUILD_TYPE "Debug")
-set(arch ${CMAKE_HOST_SYSTEM_PROCESSOR})
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(CUDAToolkit REQUIRED)
 
-find_package(CUDA REQUIRED)
+# -------- CUDA arch (optional) --------
+if(DEFINED ENV{CUDASM} AND NOT "$ENV{CUDASM}" STREQUAL "")
+  set(CMAKE_CUDA_ARCHITECTURES $ENV{CUDASM})
+endif()
 
-set(CMAKE_CXX_FLAGS_RELEASE "-std=c++14 -Wextra -Wall -Wno-missing-field-initializers -Wno-deprecated-declarations -O3")
-set(CMAKE_CXX_FLAGS_DEBUG   "-std=c++14 -O0 -g")
+# -------- TensorRT (keep the exact working lib dir logic if you want) --------
+# TensorRT
+set(TRT_LIB_DIR /usr/local/cuda/targets/aarch64-linux/lib)  # 跟能動那份一致
 
-set(CUDA_NVCC_FLAGS_RELEASE "-Werror=all-warnings -Xcompiler -std=c++14,-Wextra,-Wall,-Wno-deprecated-declarations,-O3")
-set(CUDA_NVCC_FLAGS_DEBUG   "-std=c++14 -O0 -g")
-
-set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} 
-    -gencode arch=compute_$ENV{CUDASM},code=compute_$ENV{CUDASM}
+find_library(NVINFER_LIB NAMES nvinfer HINTS ${TRT_LIB_DIR} REQUIRED)
+find_path(TENSORRT_INCLUDE_DIR
+  NAMES NvInfer.h
+  HINTS
+    "$ENV{TensorRT_Inc}"
+    /usr/include
+    /usr/include/aarch64-linux-gnu
+    /usr/local/include
+  REQUIRED
 )
 
-include_directories(
-    $ENV{CUDA_Inc}
-    $ENV{TensorRT_Inc}
-    src
-	src/pointpillar
+find_library(NVINFER_LIB
+  NAMES nvinfer
+  HINTS ${TRT_LIB_DIR}
+  REQUIRED
 )
 
-link_directories(
-    $ENV{CUDA_Lib}
-    $ENV{TensorRT_Lib}
-    build
+message(STATUS "TensorRT include: ${TENSORRT_INCLUDE_DIR}")
+message(STATUS "NVINFER: ${NVINFER_LIB}")
+
+# -------- Sources (match your old layout) --------
+file(GLOB_RECURSE CORE_FILES CONFIGURE_DEPENDS
+  ${PROJECT_SOURCE_DIR}/src/pointpillar/*.cu
+  ${PROJECT_SOURCE_DIR}/src/pointpillar/*.cpp
+  ${PROJECT_SOURCE_DIR}/src/common/tensor.cu
+  ${PROJECT_SOURCE_DIR}/src/common/tensorrt.cpp
 )
 
-file(GLOB_RECURSE CORE_FILES 
-    src/pointpillar/*.cu 
-    src/pointpillar/*.cpp
-    src/common/tensor.cu
-    src/common/tensorrt.cpp
-)
+# -------- libpointpillar_core.so --------
+add_library(pointpillar_core SHARED ${CORE_FILES})
 
-####################### libpointpillar_core.so ##########################
-cuda_add_library(pointpillar_core SHARED 
-  	${CORE_FILES}
+target_include_directories(pointpillar_core
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/src/pointpillar
+    ${TENSORRT_INCLUDE_DIR}
+    
 )
 
 target_link_libraries(pointpillar_core
-	libnvinfer.so
-)
-#######################################################################
+  PRIVATE
+    ${NVINFER_LIB}
+    CUDA::cudart
 
-
-####################### pointpillar program #############################
-cuda_add_executable(pointpillar 
-	src/main.cpp
 )
+
+# -------- pointpillar executable --------
+add_executable(pointpillar ${PROJECT_SOURCE_DIR}/src/main.cpp)
 
 target_link_libraries(pointpillar
-	pointpillar_core
+  PRIVATE
+    pointpillar_core
+    CUDA::cudart
+
 )
-#######################################################################
+
+set_target_properties(pointpillar PROPERTIES
+  BUILD_RPATH "\$ORIGIN"
+  INSTALL_RPATH "\$ORIGIN"
+)

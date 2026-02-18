@@ -6,3 +6,6 @@ model/pointpillar_raw.onnx
 model/*.plan
 workspace
 **/__pycache__
+lidar/
+lidar_front/
+result/
