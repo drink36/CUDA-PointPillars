@@ -125,16 +125,17 @@ def main():
       dummy_input['voxel_coords'] = dummy_voxel_idxs
       dummy_input['batch_size'] = 1
 
-      torch.onnx.export(model,       # model being run
-          dummy_input,               # model input (or a tuple for multiple inputs)
-          os.path.join(args.out_dir, "pointpillar_raw.onnx"),  # where to save the model (can be a file or file-like object)
-          export_params=True,        # store the trained parameter weights inside the model file
-          opset_version=11,          # the ONNX version to export the model to
-          do_constant_folding=True,  # whether to execute constant folding for optimization
-          keep_initializers_as_inputs=True,
-          input_names = ['voxels', 'voxel_num', 'voxel_idxs'],   # the model's input names
-          output_names = ['cls_preds', 'box_preds', 'dir_cls_preds'], # the model's output names
-          )
+    torch.onnx.export(
+            model=model,                                                # model being run
+            args=({"batch_dict": dummy_input}),                         # model input (or a tuple for multiple inputs)
+            f=os.path.join(args.out_dir, "pointpillar_raw.onnx"),       # where to save the model (can be a file or file-like object)
+            export_params=True,                                         # store the trained parameter weights inside the model file
+            opset_version=11,                                           # the ONNX version to export the model to
+            do_constant_folding=True,                                   # whether to execute constant folding for optimization
+            keep_initializers_as_inputs=True,                           # whether to keep initializers as inputs or not
+            input_names = ['voxels', 'voxel_num', 'voxel_idxs'],        # the model's input names
+            output_names = ['cls_preds', 'box_preds', 'dir_cls_preds'], # the model's output names
+            )
 
     onnx_raw = onnx.load(os.path.join(args.out_dir, "pointpillar_raw.onnx"))  # load onnx model
     onnx_trim_post = simplify_postprocess(onnx_raw)

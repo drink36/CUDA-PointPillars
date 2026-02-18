@@ -9,3 +9,10 @@ workspace
 lidar/
 lidar_front/
 result/
+lidar/
+lidar_front/
+result/
+*.json
+*.png
+*.mp4
+result0.2/
