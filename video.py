@@ -6,10 +6,6 @@ import glob
 import os
 import cv2
 
-# ==========================================
-#  Helper Functions (完全保留你的原始程式碼)
-# ==========================================
-
 def load_kitti_velodyne_bin(bin_path: str):
     p = Path(bin_path)
     raw = np.fromfile(str(p), dtype=np.float32)
@@ -23,12 +19,12 @@ def load_kitti_velodyne_bin(bin_path: str):
 def color_for_class(name: str):
     name = name.lower()
     if name in ["car", "van", "truck"]:
-        return (1.0, 0.0, 0.0)      # red
+        return (1.0, 0.0, 0.0)
     if name in ["pedestrian", "person_sitting"]:
-        return (0.0, 1.0, 0.0)      # green
+        return (0.0, 1.0, 0.0)
     if name in ["cyclist"]:
-        return (0.0, 0.6, 1.0)      # cyan
-    return (1.0, 0.8, 0.0)          # orange
+        return (0.0, 0.6, 1.0)
+    return (1.0, 0.8, 0.0)
 
 def make_pcd(xyz, max_points=2000000, point_color=(0.2, 0.2, 0.2)):
     if max_points and xyz.shape[0] > max_points:
@@ -82,10 +78,6 @@ def vis_crop_360(xyz, r_max=80.0, z_min=-5.0, z_max=5.0):
     m = np.isfinite(x) & np.isfinite(y) & np.isfinite(z) & (r < r_max) & (z > z_min) & (z < z_max) 
     return xyz[m]
 
-# ==========================================
-#  Video Generator Class
-# ==========================================
-
 class VideoGenerator:
     def __init__(self, bin_dir, txt_dir, score_thr=0.5, output_filename="output_lidar.mp4"):
         self.bin_files = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
@@ -94,10 +86,9 @@ class VideoGenerator:
         self.total = len(self.bin_files)
         self.output_filename = output_filename
         
-        # 影片設定
         self.width = 1280
         self.height = 720
-        self.fps = 3.0  # 調整影片速度
+        self.fps = 3.0
 
         if self.total == 0:
             print(f"Error: {bin_dir} 裡面沒有 .bin 檔")
@@ -107,103 +98,80 @@ class VideoGenerator:
         self.run_render()
 
     def run_render(self):
-        # 1. 初始化 Visualizer (非互動模式)
         vis = o3d.visualization.Visualizer()
         vis.create_window("Rendering", width=self.width, height=self.height, visible=True)
         
-        # 設定白色背景
         opt = vis.get_render_option()
         opt.background_color = np.asarray([1, 1, 1])
         opt.point_size = 1.0
-        # 增強線條粗細，錄影比較清楚
         opt.line_width = 5.0 
 
-        # 2. 初始化 VideoWriter
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v') # 或 'XVID', 'avc1'
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         video_writer = cv2.VideoWriter(self.output_filename, fourcc, self.fps, (self.width, self.height))
 
-        # 暫存幾何體，用於刪除上一幀
         geometry_list = []
 
         for idx, bin_path in enumerate(self.bin_files):
-            # --- A. 清除上一幀 ---
             for g in geometry_list:
                 vis.remove_geometry(g, reset_bounding_box=False)
             geometry_list = []
 
-            # --- B. 讀取資料 ---
             filename = os.path.basename(bin_path).replace('.bin', '')
             txt_path = os.path.join(self.txt_dir, filename + ".txt")
 
             print(f"[{idx+1}/{self.total}] Processing {filename} ...", end="\r")
 
-            # 點雲
             xyz, intensity = load_kitti_velodyne_bin(bin_path)
             xyz = vis_crop_360(xyz)
             pcd = make_pcd(xyz)
             
-            # 加入點雲 (注意：只在第一幀 reset_view)
             reset_view = (idx == 0)
             vis.add_geometry(pcd, reset_bounding_box=reset_view)
             geometry_list.append(pcd)
 
-            # 框框
             boxes = load_lidar_boxes_txt_pointpillars(txt_path, self.score_thr)
             for (x, y, z, dx, dy, dz, yaw, cls_name, score) in boxes:
                 ls = make_box_lines((x, y, z), (dx, dy, dz), yaw, color_for_class(cls_name))
-                vis.add_geometry(ls, reset_bounding_box=False) # 框框不要重置視角
+                vis.add_geometry(ls, reset_bounding_box=False)
                 geometry_list.append(ls)
 
-            # --- C. 設定固定視角 (只在第一幀執行) ---
             if idx == 0:
                 ctr = vis.get_view_control()
-                
-                # [自訂視角參數] 請依需求調整這裡
-                # 參數說明：
-                # lookat: 相機盯著的中心點 (通常是車子位置 [0,0,0])
-                # front:  相機鏡頭的方向向量 (決定是從後方看、側面看還是上方看)
-                # up:     決定哪邊是「上面」
-                # zoom:   縮放比例 (越小越近)
-                
-                # 範例1：鳥瞰圖 (Top-down)
                 # ctr.set_lookat([0, 0, 0])
-                # ctr.set_front([0, 0.01, 1]) 
+                # ctr.set_front([0, 0.01, 1])
                 # ctr.set_up([0, 1, 0])
                 # ctr.set_zoom(0.4)
-
-                # 範例2：第三人稱後方視角 (類似賽車遊戲) - 根據你的資料座標系可能需要微調
+                
                 ctr.set_lookat([0, 0, 0])
-                ctr.set_front([-1.0, 0.0, 0.5])  # 從後上方看
-                ctr.set_up([0, 0, 1])            # Z軸朝上
+                ctr.set_front([-1.0, 0.0, 0.5]) 
+                ctr.set_up([0, 0, 1])           
                 ctr.set_zoom(0.3)
 
-                # 強制更新一次 view
                 vis.poll_events()
                 vis.update_renderer()
             
-            # --- D. 渲染與截圖 ---
+
             vis.poll_events()
             vis.update_renderer()
 
-            # 擷取畫面 buffer
+
             image = vis.capture_screen_float_buffer(False)
             image = (np.asarray(image) * 255).astype(np.uint8)
             
-            # Open3D 是 RGB，OpenCV 需要 BGR
+
             image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             
             video_writer.write(image)
 
-        # 結束
         vis.destroy_window()
         video_writer.release()
         print(f"\nDone! Video saved to {self.output_filename}")
 
 if __name__ == "__main__":
-    # 請在這裡直接修改你的路徑
-    BIN_DIR = "lidar"         # 你的 .bin 資料夾
-    TXT_DIR = "result0.2"     # 你的 .txt 結果資料夾
-    SCORE = 0.4               # 信心分數
-    OUTPUT_VIDEO = "demo_result_0.4.mp4" # 輸出的影片檔名
+
+    BIN_DIR = "lidar"         
+    TXT_DIR = "result0.2"     
+    SCORE = 0.4               
+    OUTPUT_VIDEO = "demo_result_0.4.mp4"
 
     VideoGenerator(BIN_DIR, TXT_DIR, SCORE, OUTPUT_VIDEO)
